@@ -13,7 +13,8 @@ import os.path
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
-
+#from apiclient import discovery
+from google.oauth2 import service_account
 
 class BuuttiBot:
 
@@ -135,20 +136,33 @@ class BuuttiBot:
             context.bot.send_message(chat_id=update.message.chat_id, text="You are already admin")
 
     def kavijat(self, context):
-        result1 = self.google.getDayVisitorsProg(datetime.datetime.today())
-        result2 = self.google.getDayVisitorsRobots(datetime.datetime.today())
-        date = datetime.datetime.today().day
-        month = datetime.datetime.today().month
-        result = "{}.{}.\n".format(date, month)
-        if result1 != 'No data found.' and result1 != "No data on requested day":
-            result += result1
-        if result2 != 'No data found.' and result2 != "No data on requested day":
-            result += result2
-        if result == "":
-            result = result1
+        result = self.getAllKavijat(datetime.datetime.today())
 
         for id in self.chat_ids:
             context.bot.send_message(chat_id=id, text=result)
+
+    def getAllKavijat(self, queryDate):
+        result1 = self.google.getDayVisitorsProg(queryDate)
+        result2 = self.google.getDayVisitorsRobots(queryDate)
+        result3 = self.google.getDayVisitorsKKProg(queryDate)
+        result4 = self.google.getDayVisitorsKKRobots(queryDate)
+        date = queryDate.day
+        month = queryDate.month
+        result = "{}.{}.\n".format(date, month)
+        if result1 != 'No data found.' and result1 != "No data on requested day":
+            result += result1
+            result += "\n"
+        if result2 != 'No data found.' and result2 != "No data on requested day":
+            result += result2
+            result += "\n"
+        if result3 != 'No data found.' and result3 != "No data on requested day":
+            result += result3
+            result += "\n"
+        if result4 != 'No data found.' and result4 != "No data on requested day":
+            result += result4
+        if result == "{}.{}.\n".format(date, month):
+            result = result1
+        return result
 
     def kavijatCustom(self, update, context):
         args = context.args
@@ -171,16 +185,7 @@ class BuuttiBot:
                         print(args)
                         result = "Day needs to be in %d.%m."
                     else:
-                        result1 = self.google.getDayVisitorsProg(search)
-                        result2 = self.google.getDayVisitorsRobots(search)
-                        result = "{}.{}.\n".format(args[0], args[1])
-                        if result1 != 'No data found.' and result1 != "No data on requested day":
-                            result += result1
-                            result += "\n"
-                        if result2 != 'No data found.' and result2 != "No data on requested day":
-                            result += result2
-                        if result == "{}.{}.\n".format(args[0], args[1]):
-                            result = result1
+                        result = self.getAllKavijat(search)
 
         context.bot.send_message(chat_id=update.message.chat_id, text=result)
 
@@ -192,8 +197,12 @@ class GoogleSheet:
     SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
     SPREADSHEET_PROGRAMMING_ID = ""
     SPREADSHEET_ROBOTICS_ID = ""
+    SPREADSHEET_KK_PROGRAMMING_ID = ""
+    SPREADSHEET_KK_ROBOTICS_ID = ""
     RANGE_NAME1 = ""
     RANGE_NAME2 = ""
+    RANGE_NAME3 = ""
+    RANGE_NAME4 = ""
 
     def __init__(self, config):
         self.SPREADSHEET_PROGRAMMING_ID = config["Google"]["spreadsheetidProgramming"]
@@ -201,27 +210,18 @@ class GoogleSheet:
         self.SPREADSHEET_ROBOTICS_ID = config["Google"]["spreadsheetidRobotics"]
         self.RANGE_NAME2 = config["Google"]["sheetRange2"]
 
+        self.SPREADSHEET_KK_PROGRAMMING_ID = config["Google"]["spreadsheetidkkProg"]
+        self.RANGE_NAME3 = config["Google"]["sheetRange3"]
+        self.SPREADSHEET_KK_ROBOTICS_ID = config["Google"]["spreadsheetidkkRob"]
+        self.RANGE_NAME4 = config["Google"]["sheetRange4"]
+
         creds = None
-        # The file token.pickle stores the user's access and refresh tokens, and is
-        # created automatically when the authorization flow completes for the first
-        # time.
-        if os.path.exists('token.pickle'):
-            with open('token.pickle', 'rb') as token:
-                creds = pickle.load(token)
-        # If there are no (valid) credentials available, let the user log in.
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    'credentials.json', self.SCOPES)
-                creds = flow.run_local_server()
-            # Save the credentials for the next run
-            with open('token.pickle', 'wb') as token:
-                pickle.dump(creds, token)
-
-        service = build('sheets', 'v4', credentials=creds)
-
+        try:
+            #secret_file = os.path.join(os.getcwd(), "BuuttiBot-7aa2ada2a5e9.json")
+            creds = service_account.Credentials.from_service_account_file("BuuttiBot-7aa2ada2a5e9.json", scopes=self.SCOPES)
+            service = build('sheets', 'v4', credentials=creds)
+        except OSError as e:
+            print(e)
         # Call the Sheets API
         self.sheet = service.spreadsheets()
 
@@ -253,13 +253,47 @@ class GoogleSheet:
             else:
                 returnString = ""
                 for x in range(0, 7):
-                    print(x)
                     returnString += values[x][0]
                     returnString += " "
                     returnString += values[x][current]
                     returnString += "\n"
                 print(returnString)
                 return returnString
+
+    def getDayVisitorsKKProg(self, requestDay):
+        result = self.sheet.values().get(spreadsheetId=self.SPREADSHEET_KK_PROGRAMMING_ID,
+                                    range=self.RANGE_NAME3).execute()
+        values = result.get('values', [])
+
+        if not values:
+            return 'No data found.'
+        else:
+            days = values[5]
+            current = 0
+            date = requestDay.day
+            month = requestDay.month
+            for i, day in enumerate(days):
+                day = day.split(".")
+                try:
+                    dateSheet = int(day[0])
+                    monthSheet = int(day[1])
+                except:
+                    continue
+                if dateSheet == date and monthSheet == month:
+                    current = i
+            if current == 0:
+                print("no data")
+                return "No data on requested day"
+            else:
+                returnString = "KoodiKärpät:\n"
+                for x in range(0, 5):
+                    returnString += values[x][0]
+                    returnString += " "
+                    returnString += values[x][current]
+                    returnString += "\n"
+                print(returnString)
+                return returnString
+
 
     def getDayVisitorsRobots(self, requestDay):
         result = self.sheet.values().get(spreadsheetId=self.SPREADSHEET_ROBOTICS_ID,
@@ -288,9 +322,41 @@ class GoogleSheet:
                 return "No data on requested day"
             else:
                 returnString = ""
-                returnString += "Robotti kerho "
+                returnString += "Robotti kerho \n"
                 returnString += values[0][current]
+                returnString += "\n"
                 print(returnString)
+                return returnString
+
+    def getDayVisitorsKKRobots(self, requestDay):
+        result = self.sheet.values().get(spreadsheetId=self.SPREADSHEET_KK_ROBOTICS_ID,
+                                        range=self.RANGE_NAME4).execute()
+        values = result.get('values', [])
+
+        if not values:
+            return 'No data found.'
+        else:
+            days = values[1]
+            current = 0
+            date = requestDay.day
+            month = requestDay.month
+            for i, day in enumerate(days):
+                day = day.split(".")
+                try:
+                    dateSheet = int(day[0])
+                    monthSheet = int(day[1])
+                except:
+                    continue
+                if dateSheet == date and monthSheet == month:
+                    current = i
+            if current == 0:
+                print("no data")
+                return "No data on requested day"
+            else:
+                returnString = ""
+                returnString += "Robotti kerho KK\n"
+                returnString += values[0][current]
+                returnString += "\n"
                 return returnString
 
 
